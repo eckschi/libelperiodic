@@ -1,19 +1,23 @@
-#!/usr/bin/env python
+import setuptools
 
-from distutils.core import setup
+with open("README.md", "r") as fh:
+    long_description = fh.read()
 
-kwargs = {'name':'ElPeriodic',
-      'version':'1.0',
-      'description':'Phase-locked userland scheduling library',
-      'author':'Maksym Sobolyev',
-      'author_email':'sobomax@gmail.com',
-      'url':'https://github.com/sobomax/libelperiodic',
-      'packages':['elperiodic',],
-      'package_dir':{'elperiodic':'python'}
-     }
+setuptools.setup(
+    name="ElPeriodic",
+    version="1.0",
+    author="Maksym Sobolyev",
+    author_email="sobomax@gmail.com",
+    description="Phase-locked userland scheduling library",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    url="https://github.com/sobomax/libelperiodic'",
+    packages=["elperiodic"], #setuptools.find_packages(),
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+)
 
-import sys
-
-if __name__ == '__main__':
-    setup(**kwargs)
 
