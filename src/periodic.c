@@ -27,10 +27,7 @@
 #include <sys/time.h>
 #include <assert.h>
 #include <math.h>
-//#define PRD_DEBUG 1
-#if defined(PRD_DEBUG)
-#include <stdio.h>
-#endif
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -38,72 +35,45 @@
 #include "elperiodic.h"
 #include "prdic_math.h"
 #include "prdic_timespecops.h"
-
-struct prdic_band {
-    int id;
-    double freq_hz;
-    double period;
-    struct timespec tperiod;
-    struct timespec tfreq_hz;
-    struct timespec epoch;
-    struct _prdic_recfilter loop_error;
-    struct _prdic_recfilter sysload_fltrd;
-    struct _prdic_recfilter add_delay_fltrd;
-    struct _prdic_PFD phase_detector;
-    struct timespec last_tclk;
-    double add_delay;
-    struct prdic_band *next;
-};
-
-struct prdic_inst {
-    struct prdic_band bands[1];
-    struct prdic_band *ab;
-};
-
-static inline int
-getttime(struct timespec *ttp, int abort_on_fail)
-{
-
-    if (clock_gettime(CLOCK_MONOTONIC, ttp) == -1) {
-        if (abort_on_fail)
-            abort();
-        return (-1);
-    }
-    return (0);
-}
-
-#if 0
-static void
-dtime2timespec(double dtime, struct timespec *ttp)
-{
-
-    SEC(ttp) = trunc(dtime);
-    dtime -= (double)SEC(ttp);
-    NSEC(ttp) = round((double)NSEC_IN_SEC * dtime);
-}
-#endif
+#include "prdic_fd.h"
+#include "prdic_pfd.h"
+#include "prdic_main_fd.h"
+#include "prdic_main_pfd.h"
+#include "prdic_recfilter.h"
+#include "prdic_types.h"
+#include "prdic_procchain.h"
+#include "prdic_shmtrig.h"
+#include "prdic_band.h"
+#include "prdic_inst.h"
+#include "prdic_time.h"
+#include "prdic_sign.h"
 
 static void
-tplusdtime(struct timespec *ttp, double offset)
-{
-    struct timespec tp;
-
-    dtime2timespec(offset, &tp);
-    timespecadd(ttp, &tp);
-}
-
-static void
-band_init(struct prdic_band *bp, double freq_hz)
+band_init(struct prdic_band *bp, enum prdic_det_type dt,
+  double freq_hz)
 {
 
+    bp->det_type = dt;
     bp->freq_hz = freq_hz;
     bp->period = 1.0 / freq_hz;
     dtime2timespec(bp->period, &bp->tperiod);
     dtime2timespec(freq_hz, &bp->tfreq_hz);
-    _prdic_recfilter_init(&bp->loop_error, 0.96, 0.0, 0);
-    _prdic_recfilter_init(&bp->add_delay_fltrd, 0.96, bp->period, 0);
-    _prdic_recfilter_init(&bp->sysload_fltrd, 0.997, 0.0, 0);
-    _prdic_PFD_init(&bp->phase_detector);
+    _prdic_recfilter_init(&bp->loop_error, 0.96, 1.0);
+    _prdic_shmtrig_init(&bp->le_shmtrig, 1, 0.3, 0.7);
+    bp->loop_error.procchain[0] = &(bp->le_shmtrig.link);
+    _prdic_recfilter_init(&bp->add_delay_fltrd, 0.96, 1.0);
+    _prdic_recfilter_init(&bp->sysload_fltrd, 0.997, 0.0);
+    switch (dt) {
+    case PRDIC_DET_FREQ:
+        _prdic_FD_init(&bp->detector.freq);
+        break;
+    case PRDIC_DET_PHASE:
+        _prdic_PFD_init(&bp->detector.phase);
+        break;
+    default:
+        abort();
+    }
+
 }
 
 void *
@@ -116,17 +86,36 @@ prdic_init(double freq_hz, double off_from_now)
         goto e0;
     }
     memset(pip, '\0', sizeof(struct prdic_inst));
-    pip->ab = &pip->bands[0];
-    if (getttime(&pip->ab->epoch, 0) != 0) {
+    pip->root_band = malloc(sizeof(struct prdic_band));
+    if (pip->root_band == NULL) {
         goto e1;
     }
+    memset(pip->root_band, '\0', sizeof(struct prdic_band));
+    pip->ab = pip->root_band;
+    if (getttime(&pip->ab->epoch, 0) != 0) {
+        goto e2;
+    }
     tplusdtime(&pip->ab->epoch, off_from_now);
-    band_init(pip->ab, freq_hz);
+    band_init(pip->ab, PRDIC_DET_FREQ, freq_hz);
     return ((void *)pip);
+e2:
+    free(pip->root_band);
 e1:
     free(pip);
 e0:
     return (NULL);
+}
+
+int
+prdic_CFT_enable(void *prdic_inst, int signum)
+{
+    struct prdic_inst *pip = (struct prdic_inst *)prdic_inst;
+
+    assert(pip->sip == NULL);
+    pip->sip = prdic_sign_setup(signum);
+    if (pip->sip == NULL)
+        return (-1);
+    return (0);
 }
 
 int
@@ -142,9 +131,9 @@ prdic_addband(void *prdic_inst, double freq_hz)
     if (bp == NULL)
         return (-1);
     memset(bp, '\0', sizeof(struct prdic_band));
-    bp->epoch = pip->bands[0].epoch;
-    band_init(bp, freq_hz);
-    for (tbp = &pip->bands[0]; tbp->next != NULL; tbp = tbp->next)
+    bp->epoch = pip->root_band->epoch;
+    band_init(bp, pip->root_band->det_type, freq_hz);
+    for (tbp = pip->root_band; tbp->next != NULL; tbp = tbp->next)
         continue;
     bp->id = tbp->id + 1;
     assert(tbp->next == NULL);
@@ -157,8 +146,28 @@ band_set_epoch(struct prdic_band *bp, struct timespec *epoch)
 {
 
     bp->epoch = *epoch;
-    SEC(&bp->phase_detector.last_tclk) = 0;
-    NSEC(&bp->phase_detector.last_tclk) = 0;
+    switch (bp->det_type) {
+    case PRDIC_DET_FREQ:
+        _prdic_FD_reset(&bp->detector.freq);
+        break;
+    case PRDIC_DET_PHASE:
+        _prdic_PFD_reset(&bp->detector.phase);
+        break;
+    default:
+        abort();
+    }
+}
+
+static struct prdic_band *
+prdic_findband(struct prdic_inst *pip, int bnum)
+{
+    struct prdic_band *rbp;
+
+    for (rbp = pip->root_band; rbp != NULL; rbp = rbp->next) {
+        if (rbp->id == bnum)
+            break;
+    }
+    return (rbp);
 }
 
 void
@@ -174,10 +183,7 @@ prdic_useband(void *prdic_inst, int bnum)
     if (bnum == pip->ab->id)
         return;
 
-    for (tbp = &pip->bands[0]; tbp != NULL; tbp = tbp->next) {
-        if (tbp->id == bnum)
-            break;
-    }
+    tbp = prdic_findband(pip, bnum);
     assert(tbp != NULL); /* prdic_useband() requested band is not found */
     SEC(&tepoch) = SEC(&pip->ab->last_tclk);
     NSEC(&tepoch) = 0;
@@ -187,75 +193,49 @@ prdic_useband(void *prdic_inst, int bnum)
     pip->ab = tbp;
 }
 
+enum prdic_det_type
+prdic_set_det_type(void *prdic_inst, int bnum, enum prdic_det_type ndt)
+{
+    struct prdic_inst *pip;
+    enum prdic_det_type odt;
+    struct prdic_band *bp;
+
+    pip = (struct prdic_inst *)prdic_inst;
+    bp = prdic_findband(pip, bnum);
+    assert(bp != NULL);
+
+    odt = bp->det_type;
+    if (odt == ndt)
+        goto done;
+    switch (ndt) {
+    case PRDIC_DET_FREQ:
+        _prdic_FD_init(&bp->detector.freq);
+        break;
+    case PRDIC_DET_PHASE:
+        _prdic_PFD_init(&bp->detector.phase);
+        break;
+    default:
+        abort();
+    }
+    bp->det_type = ndt;
+done:
+    return (odt);
+}
+
 int
 prdic_procrastinate(void *prdic_inst)
 {
     struct prdic_inst *pip;
-    struct timespec tsleep, tremain;
-    int rval;
-    double eval, teval;
-    struct timespec eptime;
-#if defined(PRD_DEBUG)
-    static long long nrun = -1;
-
-    nrun += 1;
-#endif
 
     pip = (struct prdic_inst *)prdic_inst;
-
-    if (pip->ab->add_delay_fltrd.lastval <= 0) {
-         goto skipdelay;
+    switch (pip->ab->det_type) {
+    case PRDIC_DET_FREQ:
+        return (_prdic_procrastinate_FD(pip));
+    case PRDIC_DET_PHASE:
+        return (_prdic_procrastinate_PFD(pip));
+    default:
+        abort();
     }
-    dtime2timespec(pip->ab->add_delay_fltrd.lastval, &tremain);
-
-#if defined(PRD_DEBUG)
-    fprintf(stderr, "nrun=%lld add_delay=%f add_delay_fltrd=%f lastval=%f\n", nrun, pip->ab->add_delay, pip->ab->add_delay_fltrd.lastval, pip->ab->loop_error.lastval);
-    fflush(stderr);
-#endif
-    do {
-        tsleep = tremain;
-        memset(&tremain, '\0', sizeof(tremain));
-        rval = nanosleep(&tsleep, &tremain);
-    } while (rval < 0 && !timespeciszero(&tremain));
-
-skipdelay:
-    getttime(&eptime, 1);
-
-    timespecsub(&eptime, &pip->ab->epoch);
-    timespecmul(&pip->ab->last_tclk, &eptime, &pip->ab->tfreq_hz);
-
-    eval = _prdic_PFD_get_error(&pip->ab->phase_detector, &pip->ab->last_tclk);
-    eval = pip->ab->loop_error.lastval + erf(eval - pip->ab->loop_error.lastval);
-    _prdic_recfilter_apply(&pip->ab->loop_error, eval);
-    pip->ab->add_delay = pip->ab->add_delay_fltrd.lastval + (eval * pip->ab->period);
-    _prdic_recfilter_apply(&pip->ab->add_delay_fltrd, pip->ab->add_delay);
-    if (pip->ab->add_delay_fltrd.lastval < 0.0) {
-        pip->ab->add_delay_fltrd.lastval = 0;
-    } else if (pip->ab->add_delay_fltrd.lastval > pip->ab->period) {
-        pip->ab->add_delay_fltrd.lastval = pip->ab->period;
-    }
-    if (pip->ab->add_delay_fltrd.lastval > 0) {
-        teval = 1.0 - (pip->ab->add_delay_fltrd.lastval / pip->ab->period);
-    } else {
-        teval = 1.0 - pip->ab->loop_error.lastval;
-    }
-    _prdic_recfilter_apply(&pip->ab->sysload_fltrd, teval);
-
-#if defined(PRD_DEBUG)
-    fprintf(stderr, "run=%lld raw_error=%f filtered_error=%f teval=%f filtered_teval=%f\n", nrun,
-      eval, pip->ab->loop_error.lastval, teval, pip->ab->sysload_fltrd.lastval);
-    fflush(stderr);
-#endif
-
-#if defined(PRD_DEBUG)
-    fprintf(stderr, "error=%f\n", eval);
-    if (eval == 0.0 || 1) {
-        fprintf(stderr, "last=%lld target=%lld\n", SEC(&pip->ab->last_tclk), SEC(&pip->ab->phase_detector.last_tclk));
-    }
-    fflush(stderr);
-#endif
-
-    return (0);
 }
 
 void
@@ -264,7 +244,7 @@ prdic_set_fparams(void *prdic_inst, double fcoef)
     struct prdic_inst *pip;
 
     pip = (struct prdic_inst *)prdic_inst;
-    assert(pip->ab->loop_error.lastval == 0.0);
+    assert(pip->ab->loop_error.lastval == 1.0);
     _prdic_recfilter_adjust(&pip->ab->loop_error, fcoef);
 }
 
@@ -295,6 +275,15 @@ prdic_getload(void *prdic_inst)
     return (pip->ab->sysload_fltrd.lastval);
 }
 
+int
+prdic_islocked(void *prdic_inst)
+{
+    struct prdic_inst *pip;
+
+    pip = (struct prdic_inst *)prdic_inst;
+    return (pip->ab->le_shmtrig.currval == 0);
+}
+
 void
 prdic_free(void *prdic_inst)
 {
@@ -302,10 +291,13 @@ prdic_free(void *prdic_inst)
     struct prdic_band *tbp, *fbp;
 
     pip = (struct prdic_inst *)prdic_inst;
-    for (tbp = pip->bands[0].next; tbp != NULL;) {
+    for (tbp = pip->root_band; tbp != NULL;) {
         fbp = tbp;
         tbp = tbp->next;
         free(fbp);
+    }
+    if (pip->sip != NULL) {
+        prdic_sign_dtor(pip->sip);
     }
     free(prdic_inst);
 }

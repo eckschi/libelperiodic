@@ -24,24 +24,15 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _PRDIC_MATH_H_
-#define _PRDIC_MATH_H_
+#ifndef _PRDIC_PFD_H_
+#define _PRDIC_PFD_H_
 
-#ifdef MIN
-#undef MIN
-#endif
-#ifdef MAX
-#undef MAX
-#endif
-#ifdef ABS
-#undef ABS
-#endif
-#define MIN(x, y)       (((x) > (y)) ? (y) : (x))
-#define MAX(x, y)       (((x) > (y)) ? (x) : (y))
-#define ABS(x)          ((x) > 0 ? (x) : (-x))
+struct _prdic_PFD {
+    struct timespec target_tclk;
+};
 
-/* Function prototypes */
-double _prdic_sigmoid(double);
-double _prdic_freqoff_to_period(double freq_0, double foff_c, double foff_x);
+void _prdic_PFD_init(struct _prdic_PFD *);
+double _prdic_PFD_get_error(struct _prdic_PFD *, const struct timespec *);
+void _prdic_PFD_reset(struct _prdic_PFD *);
 
-#endif /* _PRDIC_MATH_H_ */
+#endif /* _PRDIC_PFD_H_ */
