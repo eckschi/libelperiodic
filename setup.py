@@ -5,7 +5,7 @@ with open("README", "r") as fh:
 
 setuptools.setup(
     name="ElPeriodic",
-    version="1.0",
+    version="1.0.2",
     author="Maksym Sobolyev",
     author_email="sobomax@gmail.com",
     description="Phase-locked userland scheduling library",
