@@ -30,30 +30,6 @@
 #include <string.h>
 
 #include "prdic_math.h"
-#include "prdic_timespecops.h"
-
-void
-_prdic_PFD_init(struct _prdic_PFD *pfd_p)
-{
-
-    memset(pfd_p, '\0', sizeof(struct _prdic_PFD));
-}
-
-double
-_prdic_PFD_get_error(struct _prdic_PFD *pfd_p, const struct timespec *tclk)
-{
-    double err0r;
-    struct timespec ttclk;
-
-    if (timespeciszero(&pfd_p->last_tclk)) {
-        pfd_p->last_tclk = *tclk;
-        return (0.0);
-    }
-    timespecsub2(&ttclk, tclk, &pfd_p->last_tclk);
-    err0r = timespec2dtime(&ttclk);
-    pfd_p->last_tclk = *tclk;
-    return (1.0 - err0r);
-}
 
 double
 _prdic_sigmoid(double x)
@@ -62,50 +38,11 @@ _prdic_sigmoid(double x)
     return (x / (1 + fabs(x)));
 }
 
-double
-_prdic_recfilter_apply(struct _prdic_recfilter *f, double x)
-{
-
-    f->lastval = f->a * x + f->b * f->lastval;
-    if (f->peak_detect != 0) {
-        if (f->lastval > f->maxval) {
-            f->maxval = f->lastval;
-        } if (f->lastval < f->minval) {
-            f->minval = f->maxval;
-        }
-    }
-    return f->lastval;
-}
-
-void
-_prdic_recfilter_init(struct _prdic_recfilter *f, double fcoef, double initval, int peak_detect)
-{
-
-    f->lastval = initval;
-    _prdic_recfilter_adjust(f, fcoef);
-    if (peak_detect != 0) {
-        f->peak_detect = 1;
-        f->maxval = initval;
-        f->minval = initval;
-    } else {
-        f->peak_detect = 0;
-        f->maxval = 0;
-        f->minval = 0;
-    }
-}
-
-void
-_prdic_recfilter_adjust(struct _prdic_recfilter *f, double fcoef)
-{
-
-    assert(fcoef < 1.0 && fcoef > 0.0);
-    f->a = 1.0 - fcoef;
-    f->b = fcoef;
-}
-
+#if 0
 double
 _prdic_freqoff_to_period(double freq_0, double foff_c, double foff_x)
 {
 
     return (1.0 / freq_0 * (1 + foff_c * foff_x));
 }
+#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Sippy Software, Inc., http://www.sippysoft.com
+ * Copyright (c) 2014-2019 Sippy Software, Inc., http://www.sippysoft.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,24 +24,50 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _PRDIC_MATH_H_
-#define _PRDIC_MATH_H_
+#include <sys/time.h>
+#include <assert.h>
+#include <math.h>
+#include <string.h>
 
-#ifdef MIN
-#undef MIN
-#endif
-#ifdef MAX
-#undef MAX
-#endif
-#ifdef ABS
-#undef ABS
-#endif
-#define MIN(x, y)       (((x) > (y)) ? (y) : (x))
-#define MAX(x, y)       (((x) > (y)) ? (x) : (y))
-#define ABS(x)          ((x) > 0 ? (x) : (-x))
+#include "prdic_math.h"
+#include "prdic_timespecops.h"
+#include "prdic_pfd.h"
 
-/* Function prototypes */
-double _prdic_sigmoid(double);
-double _prdic_freqoff_to_period(double freq_0, double foff_c, double foff_x);
+void
+_prdic_PFD_init(struct _prdic_PFD *pfd_p)
+{
 
-#endif /* _PRDIC_MATH_H_ */
+    memset(pfd_p, '\0', sizeof(struct _prdic_PFD));
+}
+
+double
+_prdic_PFD_get_error(struct _prdic_PFD *pfd_p, const struct timespec *tclk)
+{
+    double err0r;
+    struct timespec next_tclk, ttclk;
+
+    SEC(&next_tclk) = SEC(tclk) + 1;
+    NSEC(&next_tclk) = 0;
+    if (timespeciszero(&pfd_p->target_tclk)) {
+        pfd_p->target_tclk = next_tclk;
+        return (0.0);
+    }
+
+    timespecsub2(&ttclk, &pfd_p->target_tclk, tclk);
+    err0r = timespec2dtime(&ttclk);
+
+    pfd_p->target_tclk = next_tclk;
+    if (err0r > 0) {
+        SEC(&pfd_p->target_tclk) += 1;
+    }
+
+    return (err0r);
+}
+
+void
+_prdic_PFD_reset(struct _prdic_PFD *pfd_p)
+{
+
+    SEC(&pfd_p->target_tclk) = 0;
+    NSEC(&pfd_p->target_tclk) = 0;
+}

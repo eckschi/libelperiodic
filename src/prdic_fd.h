@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Sippy Software, Inc., http://www.sippysoft.com
+ * Copyright (c) 2014-2019 Sippy Software, Inc., http://www.sippysoft.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,24 +24,16 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _PRDIC_MATH_H_
-#define _PRDIC_MATH_H_
+#ifndef _PRDIC_FD_H_
+#define _PRDIC_FD_H_
 
-#ifdef MIN
-#undef MIN
-#endif
-#ifdef MAX
-#undef MAX
-#endif
-#ifdef ABS
-#undef ABS
-#endif
-#define MIN(x, y)       (((x) > (y)) ? (y) : (x))
-#define MAX(x, y)       (((x) > (y)) ? (x) : (y))
-#define ABS(x)          ((x) > 0 ? (x) : (-x))
+struct _prdic_FD {
+    struct timespec last_tclk;
+};
 
 /* Function prototypes */
-double _prdic_sigmoid(double);
-double _prdic_freqoff_to_period(double freq_0, double foff_c, double foff_x);
+void _prdic_FD_init(struct _prdic_FD *);
+double _prdic_FD_get_error(struct _prdic_FD *, const struct timespec *);
+void _prdic_FD_reset(struct _prdic_FD *);
 
-#endif /* _PRDIC_MATH_H_ */
+#endif /* _PRDIC_FD_H_ */

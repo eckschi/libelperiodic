@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Sippy Software, Inc., http://www.sippysoft.com
+ * Copyright (c) 2014-2019 Sippy Software, Inc., http://www.sippysoft.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,24 +24,27 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _PRDIC_MATH_H_
-#define _PRDIC_MATH_H_
+#ifndef _PRDIC_BAND_H_
+#define _PRDIC_BAND_H_
 
-#ifdef MIN
-#undef MIN
-#endif
-#ifdef MAX
-#undef MAX
-#endif
-#ifdef ABS
-#undef ABS
-#endif
-#define MIN(x, y)       (((x) > (y)) ? (y) : (x))
-#define MAX(x, y)       (((x) > (y)) ? (x) : (y))
-#define ABS(x)          ((x) > 0 ? (x) : (-x))
+struct prdic_band {
+    int id;
+    double freq_hz;
+    double period;
+    struct timespec tperiod;
+    struct timespec tfreq_hz;
+    struct timespec epoch;
+    struct _prdic_recfilter loop_error;
+    struct _prdic_shmtrig le_shmtrig;
+    struct _prdic_recfilter sysload_fltrd;
+    struct _prdic_recfilter add_delay_fltrd;
+    union {
+      struct _prdic_PFD phase;
+      struct _prdic_FD freq;
+    } detector;
+    struct timespec last_tclk;
+    enum prdic_det_type det_type;
+    struct prdic_band *next;
+};
 
-/* Function prototypes */
-double _prdic_sigmoid(double);
-double _prdic_freqoff_to_period(double freq_0, double foff_c, double foff_x);
-
-#endif /* _PRDIC_MATH_H_ */
+#endif /* _PRDIC_BAND_H_ */
