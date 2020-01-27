@@ -32,6 +32,8 @@ rm -rf $RPM_BUILD_ROOT
 /usr/lib64/*
 
 %changelog
+* Mon Jan 20 2020 Manfred Eckschlager <meckschlager@eurofunk.com> 1.0.2
+- incorporated changes until 04ee668a3d384bf7ad9ce161ad4f590a232580f7
 * Wed May 23 2018 Manfred Eckschlager <meckschlager@eurofunk.com> 1.0.0-1
 - Initial version of the package
 
