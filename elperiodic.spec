@@ -1,5 +1,5 @@
 Name:           elperiodic
-Version:        1.0
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        ElPeriodic Library
 
